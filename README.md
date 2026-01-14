@@ -25,5 +25,15 @@ libraries/TFT_eSPI/User_Setup.h
 #define TFT_HEIGHT 320
 #define SPI_FREQUENCY 27000000
 
+* Where Skimmers "Hide" in the Data
+Keep an eye out for these "Red Flags" in your logs:
+
+The "Unnamed" Strong Signal: If you see a device with no name but an RSSI of -35 to -45, and that signal stays strong only when you are touching the pump, that is suspicious even if it isn't named "HC-05."
+
+The 24/7 Device: If you log the same MAC address at 2:00 AM and 2:00 PM at the same location, it's a fixed part of the infrastructure (or a skimmer).
+
+The "Manufacturer" Lead: Real skimmers often use cheap modules from Guangzhou HC Information Technology. If your log shows a MAC address starting with 00:14:03, that is the specific OUI for HC-05 modules.
+
 References:
 1. https://randomnerdtutorials.com/cheap-yellow-display-esp32-2432s028r/
+f

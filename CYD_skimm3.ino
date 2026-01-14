@@ -1,4 +1,4 @@
-//#include "BluetoothSerial.h"
+
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEScan.h>
@@ -14,12 +14,13 @@
 #define XPT2046_CLK 25
 #define XPT2046_MISO 39
 #define XPT2046_MOSI 32
+#define SCREEN_WIDTH 320
 #define SCREEN_HIGHT 240
 #define SD_CS 5  // Standard for most CYD boards
 #define LED_RED 4
 #define LED_GREEN 16
 #define LED_BLUE 17
-
+bool isMuted = false;  // Starts with LEDs active
 unsigned long lastActionTime = 0;
 const unsigned long idleTimeout = 20000;  // 20 seconds in milliseconds
 
@@ -32,12 +33,22 @@ BLEScan* pBLEScan;
 void drawUI() {
   // Draw the button divider at the bottom
   tft.drawFastHLine(0, 180, 320, TFT_WHITE);
-  tft.drawFastVLine(160, 180, 60, TFT_WHITE);
-
+  //tft.drawFastVLine(160, 180, 60, TFT_WHITE);
+  // Vertical Dividers
+  tft.drawFastVLine(106, 180, 60, TFT_WHITE);
+  tft.drawFastVLine(212, 180, 60, TFT_WHITE);
   tft.setTextSize(2);
   tft.setTextColor(TFT_CYAN);
-  tft.drawCentreString("SCAN", 80, 200, 1);
-  tft.drawCentreString("LOGS", SCREEN_HIGHT, 200, 1);
+  tft.drawCentreString("SCAN", 53, 205, 1);
+  tft.drawCentreString("LOGS", 159, 205, 1);
+  // Mute Toggle Text
+  if (isMuted) {
+    tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+    tft.drawCentreString("MUTED", 265, 205, 1);
+  } else {
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.drawCentreString("ALARM", 265, 205, 1);
+  }
   tft.setTextSize(1);  // ALWAYS reset to 1 after drawing UI
 }
 float readBattery() {
@@ -278,8 +289,10 @@ void doScan() {
   tft.println("\n[Tap or wait 20s to Rescan]");
   // Update the timer again after the scan finishes (scans take ~10 seconds)
   lastActionTime = millis();
+  SerialBT.deleteAllBondedDevices();  // Keeps the internal BT list clean
 }
 void policeStrobe() {
+  if (isMuted) return;  // Exit immediately if muted
   for (int i = 0; i < 10; i++) {
     // Red ON, Blue OFF
     digitalWrite(LED_RED, LOW);
@@ -358,29 +371,35 @@ void loop() {
     TS_Point p = touch.getPoint();
 
     // Map touch to pixels
-    int x = map(p.x, 200, 3700, 0, 320);
+    int x = map(p.x, 200, 3700, 0, SCREEN_WIDTH);
     int y = map(p.y, SCREEN_HIGHT, 3800, 0, SCREEN_HIGHT);
 
     if (y > 180) {
       if (x < 160) {
         doScan();
         drawUI();
-      } else {
+      } else if (x >= 106 && x < 212) {
         showLogs();
         drawUI();  // Redraw buttons after returning from logs
-        lastActionTime = millis();
+
+      } else {
+        // Zone 3: Toggle Mute
+        isMuted = !isMuted;
+        drawUI();  // Redraw to show "MUTED" or "ALARM"
+        delay(200);
       }
+      lastActionTime = millis();
     }
     delay(300);
   }
-
+  drawBattery();
   // 3. Progress Bar Logic
   unsigned long timeElapsed = millis() - lastActionTime;
   if (timeElapsed < idleTimeout) {
-    int progressWidth = map(timeElapsed, 0, idleTimeout, 0, 320);
+    int progressWidth = map(timeElapsed, 0, idleTimeout, 0, SCREEN_WIDTH);
     // Draw the bar in the "Dead Zone" between the buttons and the results
     tft.fillRect(0, 175, progressWidth, 4, TFT_BLUE);
-    tft.fillRect(progressWidth, 175, 320 - progressWidth, 4, TFT_BLACK);
+    tft.fillRect(progressWidth, 175, SCREEN_WIDTH - progressWidth, 4, TFT_BLACK);
   }
   // drawBattery();
 }
