@@ -9,14 +9,16 @@
 #include "SD.h"
 #include "SPI.h"
 
-
-
 // Pins for CYD
 #define XPT2046_CS 33
 #define XPT2046_CLK 25
 #define XPT2046_MISO 39
 #define XPT2046_MOSI 32
+#define SCREEN_HIGHT 240
 #define SD_CS 5  // Standard for most CYD boards
+#define LED_RED 4
+#define LED_GREEN 16
+#define LED_BLUE 17
 
 unsigned long lastActionTime = 0;
 const unsigned long idleTimeout = 20000;  // 20 seconds in milliseconds
@@ -35,8 +37,32 @@ void drawUI() {
   tft.setTextSize(2);
   tft.setTextColor(TFT_CYAN);
   tft.drawCentreString("SCAN", 80, 200, 1);
-  tft.drawCentreString("LOGS", 240, 200, 1);
+  tft.drawCentreString("LOGS", SCREEN_HIGHT, 200, 1);
   tft.setTextSize(1);  // ALWAYS reset to 1 after drawing UI
+}
+float readBattery() {
+  // Read the ADC value (0 - 4095)
+  int raw = analogRead(35);
+
+  // Convert to voltage
+  // (raw / 4095) * 3.3V * 2 (divider ratio)
+  float voltage = (raw / 4095.0) * 3.3 * 2.0;
+
+  // Calibration: If your multimeter says 4.0V but the screen says 3.8V,
+  // adjust this offset until they match.
+  float calibrationOffset = 0.12;
+  return voltage + calibrationOffset;
+}
+
+void displayBattery() {
+  float v = readBattery();
+  int percentage = map(v * 100, 340, 420, 0, 100);  // 3.4V to 4.2V range
+  percentage = constrain(percentage, 0, 100);
+
+  tft.setCursor(250, 5);
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_GREEN, TFT_BLACK);
+  tft.printf("%.1fV %d%%", v, percentage);
 }
 
 void drawBattery() {
@@ -65,7 +91,7 @@ void drawBattery() {
   tft.fillRect(282, 7, barWidth, 8, color);
 
   // Print text next to icon
-  tft.setCursor(240, 7);
+  tft.setCursor(SCREEN_HIGHT, 7);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.printf("%d%%", percent);
 }
@@ -112,8 +138,30 @@ void showLogs() {
   tft.fillScreen(TFT_BLACK);
 }
 
+void setLED(bool r, bool g, bool b) {
+  // Using ! because it's Active Low
+  digitalWrite(LED_RED, !r);
+  digitalWrite(LED_GREEN, !g);
+  digitalWrite(LED_BLUE, !b);
+}
+
+void updateStatusLED() {
+  float v = readBattery();
+
+  if (v > 4.25) {
+    // If voltage is very high, it's likely plugged into USB/Charging
+    setLED(0, 0, 1);  // Blue for charging
+  } else if (v < 3.5) {
+    setLED(1, 0, 0);  // Red for Low Battery
+  } else {
+    digitalWrite(LED_RED, HIGH);  // Off
+    digitalWrite(LED_GREEN, HIGH);
+    digitalWrite(LED_BLUE, HIGH);
+  }
+}
 void doScan() {
   lastActionTime = millis();
+  setLED(0, 1, 0);  // Turn LED Green while scanning
   tft.fillScreen(TFT_BLACK);
   tft.setCursor(0, 0);
   tft.println("1. SCANNING CLASSIC...");
@@ -121,9 +169,10 @@ void doScan() {
   // --- Part 1: Classic BT ---
 
   BTScanResults* results = SerialBT.getScanResults();
-  SerialBT.discover(3000);  // Shorter scan to save radio time
+  SerialBT.discover(4000);  // Shorter scan to save radio time
   for (int j = 0; j < results->getCount(); j++) {
     auto device = results->getDevice(j);
+    String name = device->getName().c_str();
     int rssi = device->getRSSI();
     int barWidth = map(rssi, -90, -30, 0, 200);
     barWidth = constrain(barWidth, 0, 200);  // Keep it within bounds
@@ -135,6 +184,20 @@ void doScan() {
     tft.printf("%s [%d]\n", device->getName().c_str(), rssi);
     tft.drawRect(10, tft.getCursorY(), 200, 8, TFT_DARKGREY);
     tft.fillRect(10, tft.getCursorY(), barWidth, 8, barColor);
+
+    // --- THE ALARM TRIGGER ---
+    // Check for common skimmer module names
+    if (name.indexOf("HC-05") >= 0 || name.indexOf("HC-06") >= 0) {
+      tft.setTextColor(TFT_RED, TFT_YELLOW);
+      tft.println("!!! SKIMMER DETECTED !!!");
+
+      // Log to SD for evidence
+      logToSD("ALARM", name, device->getAddress().toString().c_str(), rssi);
+
+      // Trigger hardware alarm
+      policeStrobe();
+      tft.setTextColor(TFT_WHITE, TFT_BLACK);  // Reset colors
+    }
   }
 
   // --- Crucial: Give the radio a moment to switch modes ---
@@ -171,7 +234,11 @@ void doScan() {
       uint16_t barColor = TFT_GREEN;
       if (rssi > -60) barColor = TFT_YELLOW;  // Getting closer
       if (rssi > -45) barColor = TFT_RED;     // EXTREMELY CLOSE (Skimmer range)
-
+      if (rssi > -45) {
+        setLED(1, 0, 0);  // Immediate Red alert!
+        delay(100);       // Quick flash
+        setLED(0, 0, 0);
+      }
       // Check if Name exists
       String name = "???";
       if (device.haveName()) {
@@ -212,11 +279,37 @@ void doScan() {
   // Update the timer again after the scan finishes (scans take ~10 seconds)
   lastActionTime = millis();
 }
+void policeStrobe() {
+  for (int i = 0; i < 10; i++) {
+    // Red ON, Blue OFF
+    digitalWrite(LED_RED, LOW);
+    digitalWrite(LED_BLUE, HIGH);
+    digitalWrite(LED_GREEN, HIGH);
+    delay(80);
+
+    // Blue ON, Red OFF
+    digitalWrite(LED_RED, HIGH);
+    digitalWrite(LED_BLUE, LOW);
+    digitalWrite(LED_GREEN, HIGH);
+    delay(80);
+  }
+  // Turn all off when done
+  digitalWrite(LED_RED, HIGH);
+  digitalWrite(LED_BLUE, HIGH);
+}
 
 void setup() {
   Serial.begin(115200);
   pinMode(21, OUTPUT);
   digitalWrite(21, HIGH);  // Backlight
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_BLUE, OUTPUT);
+
+  // Turn them all off at start (Set HIGH for Common Anode)
+  digitalWrite(LED_RED, HIGH);
+  digitalWrite(LED_GREEN, HIGH);
+  digitalWrite(LED_BLUE, HIGH);
   // Initialize SD Card
   if (!SD.begin(SD_CS)) {
     Serial.println("SD Card Mount Failed");
@@ -266,7 +359,7 @@ void loop() {
 
     // Map touch to pixels
     int x = map(p.x, 200, 3700, 0, 320);
-    int y = map(p.y, 240, 3800, 0, 240);
+    int y = map(p.y, SCREEN_HIGHT, 3800, 0, SCREEN_HIGHT);
 
     if (y > 180) {
       if (x < 160) {
