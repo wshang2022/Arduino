@@ -140,7 +140,9 @@ void doScan() {
       tft.setTextColor(TFT_WHITE, TFT_BLACK);
     }
   }
+  tft.setTextColor(TFT_GREEN);
   tft.println("\n2. BLE SCAN...");
+    tft.setTextColor(TFT_CYAN);
   pBLEScan->clearResults();
   BLEScanResults* bleResults = pBLEScan->start(5, false);
 
@@ -193,31 +195,32 @@ float readBattery() {
 void drawBattery() {
   int raw = analogRead(35);
   float voltage = (raw / 4095.0) * 3.3 * 2.0;
-  float v = voltage + 0.12; 
+  float v = voltage + 0.12;
   int percent = constrain(map(v * 100, 320, 420, 0, 100), 0, 100);
 
   // bx is the left edge of the battery icon
-  int bx = 200; 
+  int bx = 200;
   int by = 5;
 
   // 1. Clear a smaller area to avoid flickering
   tft.fillRect(bx - 40, by, 75, 15, TFT_BLACK);
 
   // 2. Draw Battery Icon
-  tft.drawRect(bx, by, 30, 12, TFT_WHITE);   
-  tft.fillRect(bx + 30, by + 3, 3, 6, TFT_WHITE); 
+  tft.drawRect(bx, by, 30, 12, TFT_WHITE);
+  tft.fillRect(bx + 30, by + 3, 3, 6, TFT_WHITE);
 
   // 3. Fill based on level
-  uint16_t color = (percent < 20) ? TFT_RED : (percent < 50) ? TFT_YELLOW : TFT_GREEN;
+  uint16_t color = (percent < 20) ? TFT_RED : (percent < 50) ? TFT_YELLOW
+                                                             : TFT_GREEN;
   int barWidth = map(percent, 0, 100, 0, 26);
   tft.fillRect(bx + 2, by + 2, barWidth, 8, color);
 
   // 4. Print percentage HUGGING the icon
   // Adjust the 'minus' value here to move the text closer or further.
   // -35 to -38 usually makes it sit right against the white border.
-  tft.setCursor(bx - 36, by + 2); 
+  tft.setCursor(bx - 36, by + 2);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.printf("%3d%%", percent); // %3d ensures alignment for 1, 2, or 3 digits
+  tft.printf("%3d%%", percent);  // %3d ensures alignment for 1, 2, or 3 digits
 }
 void logToSD(String type, String name, String mac, int rssi) {
   File file = SD.open("/log.csv", FILE_APPEND);
@@ -235,31 +238,45 @@ void showLogs() {
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE);
   tft.setCursor(0, 0);
-  tft.println("--- LOG HISTORY ---");
+  tft.println("--- RECENT LOGS ---");
 
   if (!SD.exists("/log.csv")) {
     tft.println("No logs found.");
   } else {
     File file = SD.open("/log.csv");
-    // Simple logic: Read the file and print lines
-    // To be efficient, we just show the most recent ones
-    int count = 0;
-    while (file.available() && count < 8) {
+    
+    // 1. Count total lines in the file
+    int totalLines = 0;
+    while (file.available()) {
+      file.readStringUntil('\n');
+      totalLines++;
+    }
+    
+    // 2. Go back to the start
+    file.seek(0);
+    
+    // 3. Skip the old lines (Keep the last 15)
+    int startLine = (totalLines > 15) ? (totalLines - 15) : 0;
+    for (int i = 0; i < startLine; i++) {
+      file.readStringUntil('\n');
+    }
+
+    // 4. Print the remaining (newest) lines
+    while (file.available()) {
       String line = file.readStringUntil('\n');
-      tft.setTextSize(1);
+      // Truncate long lines so they don't wrap and look messy
+      if (line.length() > 35) line = line.substring(0, 32) + "...";
       tft.println(line);
-      tft.println("-");
-      count++;
     }
     file.close();
   }
 
   tft.setTextColor(TFT_CYAN);
-  tft.println("\n[Tap anywhere to go BACK]");
+  tft.println("\n[Tap to EXIT & SCAN]");
 
-  // Wait for touch to exit
   delay(500);
   while (!touch.touched()) { delay(10); }
+  while (touch.touched()) { delay(10); } // Wait for release
   tft.fillScreen(TFT_BLACK);
 }
 
@@ -300,22 +317,22 @@ void setup() {
   touch.setRotation(0);
 
   SerialBT.begin("CYD_Skimmer_Hunter");
-  
+
   BLEDevice::init("");
   pBLEScan = BLEDevice::getScan();
   pBLEScan->setActiveScan(true);
   tft.setTextColor(TFT_GREEN, TFT_BLACK);
-  
+
   // 1. Move Title down to Y=30 to leave Y=0-20 for the Battery
-  tft.drawCentreString("SKIMMER SCANNER", 120, 30, 2); 
-  
+  tft.drawCentreString("SKIMMER SCANNER", 120, 30, 2);
+
   // 2. Move the status text lower so it doesn't feel cramped
   tft.setCursor(0, 70);
   tft.println("Ready. Tap SCAN to begin...");
 
   // 3. Draw UI and Battery
-  drawUI();      // Draws buttons
-  drawBattery(); // Draws icon and hugging percentage
+  drawUI();       // Draws buttons
+  drawBattery();  // Draws icon and hugging percentage
   lastActionTime = millis();
 }
 
@@ -343,9 +360,10 @@ void loop() {
       if (y > 260) {
         if (x < 80) {  // Far Left
           doScan();
-        } else if (x < 160) {  // Middle
+        } else if (x < 160) {  // Log
           showLogs();
           drawUI();
+          doScan();
         } else {  // Far Right
           isMuted = !isMuted;
           drawUI();
