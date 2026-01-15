@@ -53,15 +53,25 @@ void updateStatusLED() {
 }
 
 void policeStrobe() {
-  if (isMuted) return;
+  if (isMuted) return;  // Exit immediately if muted
   for (int i = 0; i < 10; i++) {
-    setLED(1, 0, 0);
+    // Red ON, Blue OFF
+    digitalWrite(LED_RED, LOW);
+    digitalWrite(LED_BLUE, HIGH);
+    digitalWrite(LED_GREEN, HIGH);
     delay(80);
-    setLED(0, 0, 1);
+
+    // Blue ON, Red OFF
+    digitalWrite(LED_RED, HIGH);
+    digitalWrite(LED_BLUE, LOW);
+    digitalWrite(LED_GREEN, HIGH);
     delay(80);
   }
-  setLED(0, 0, 0);
+  // Turn all off when done
+  digitalWrite(LED_RED, HIGH);
+  digitalWrite(LED_BLUE, HIGH);
 }
+
 
 void drawUI() {
   tft.drawFastHLine(0, 260, 240, TFT_WHITE);
@@ -89,9 +99,9 @@ void doScan() {
   tft.setTextColor(TFT_GREEN);
   tft.println("1. CLASSIC BT SCAN...");
 
-// --- Part 1: Classic BT ---
+  // --- Part 1: Classic BT ---
   BTScanResults* results = SerialBT.getScanResults();
-  SerialBT.discover(4000); 
+  SerialBT.discover(4000);
 
   for (int j = 0; j < results->getCount(); j++) {
     auto device = results->getDevice(j);
@@ -115,9 +125,9 @@ void doScan() {
     // 4. Draw the Signal Bar
     // We capture the current Y, draw the bar, then move the cursor down manually
     int currentY = tft.getCursorY();
-    tft.drawRect(10, currentY, 200, 8, TFT_DARKGREY); // The track
-    tft.fillRect(10, currentY, barWidth, 8, barColor); // The signal
-    
+    tft.drawRect(10, currentY, 200, 8, TFT_DARKGREY);   // The track
+    tft.fillRect(10, currentY, barWidth, 8, barColor);  // The signal
+
     // Move cursor down so the next device name doesn't hit this bar
     tft.setCursor(0, currentY + 12);
 
@@ -181,40 +191,33 @@ float readBattery() {
 }
 
 void drawBattery() {
-  // Read the ADC and calculate percentage
   int raw = analogRead(35);
   float voltage = (raw / 4095.0) * 3.3 * 2.0;
+  float v = voltage + 0.12; 
+  int percent = constrain(map(v * 100, 320, 420, 0, 100), 0, 100);
 
-  // Calibration offset (as per your landscape code)
-  float v = voltage + 0.12;
-
-  int percent = map(v * 100, 320, 420, 0, 100);
-  percent = constrain(percent, 0, 100);
-
-  // --- POSITIONING FOR 240 WIDTH ---
-  // We place the battery body at X=200, leaving 40px for the icon and tip
-  int bx = 200;
+  // bx is the left edge of the battery icon
+  int bx = 200; 
   int by = 5;
 
-  // 1. Clear the old text area (prevents numbers from overlapping)
-  tft.fillRect(bx - 45, by, 80, 15, TFT_BLACK);
+  // 1. Clear a smaller area to avoid flickering
+  tft.fillRect(bx - 40, by, 75, 15, TFT_BLACK);
 
   // 2. Draw Battery Icon
-  tft.drawRect(bx, by, 30, 12, TFT_WHITE);         // Body
-  tft.fillRect(bx + 30, by + 3, 3, 6, TFT_WHITE);  // Tip
+  tft.drawRect(bx, by, 30, 12, TFT_WHITE);   
+  tft.fillRect(bx + 30, by + 3, 3, 6, TFT_WHITE); 
 
   // 3. Fill based on level
-  uint16_t color = TFT_GREEN;
-  if (percent < 20) color = TFT_RED;
-  else if (percent < 50) color = TFT_YELLOW;
-
+  uint16_t color = (percent < 20) ? TFT_RED : (percent < 50) ? TFT_YELLOW : TFT_GREEN;
   int barWidth = map(percent, 0, 100, 0, 26);
   tft.fillRect(bx + 2, by + 2, barWidth, 8, color);
 
-  // 4. Print percentage text to the LEFT of the battery
-  tft.setCursor(bx - 42, by + 2);
+  // 4. Print percentage HUGGING the icon
+  // Adjust the 'minus' value here to move the text closer or further.
+  // -35 to -38 usually makes it sit right against the white border.
+  tft.setCursor(bx - 36, by + 2); 
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.printf("%d%%", percent);
+  tft.printf("%3d%%", percent); // %3d ensures alignment for 1, 2, or 3 digits
 }
 void logToSD(String type, String name, String mac, int rssi) {
   File file = SD.open("/log.csv", FILE_APPEND);
@@ -261,13 +264,31 @@ void showLogs() {
 }
 
 void setup() {
+  setCpuFrequencyMhz(80);
   Serial.begin(115200);
   pinMode(21, OUTPUT);
   digitalWrite(21, HIGH);
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_BLUE, OUTPUT);
+  // Backlight pin for most CYD boards is 21
+  // Format: ledcAttach(pin, frequency, resolution);
+  ledcAttach(21, 5000, 8);
+  // To set brightness: 0 = Off, 255 = Full
+  ledcWrite(21, 150);
+
   setLED(0, 0, 0);
+  // Initialize SD Card
+  if (!SD.begin(SD_CS)) {
+    Serial.println("SD Card Mount Failed");
+  } else {
+    File file = SD.open("/log.csv", FILE_APPEND);
+    if (!file) {
+      File file = SD.open("/log.csv", FILE_WRITE);
+      file.println("Timestamp,Type,Name,MAC,RSSI");
+      file.close();
+    }
+  }
 
   tft.init();
   tft.setRotation(0);
@@ -278,13 +299,23 @@ void setup() {
   touch.begin(touchSPI);
   touch.setRotation(0);
 
-  SerialBT.begin("SkimmerHunter");
+  SerialBT.begin("CYD_Skimmer_Hunter");
+  
   BLEDevice::init("");
   pBLEScan = BLEDevice::getScan();
   pBLEScan->setActiveScan(true);
+  tft.setTextColor(TFT_GREEN, TFT_BLACK);
+  
+  // 1. Move Title down to Y=30 to leave Y=0-20 for the Battery
+  tft.drawCentreString("SKIMMER SCANNER", 120, 30, 2); 
+  
+  // 2. Move the status text lower so it doesn't feel cramped
+  tft.setCursor(0, 70);
+  tft.println("Ready. Tap SCAN to begin...");
 
-  tft.println("Ready. Tap SCAN.");
-  drawUI();
+  // 3. Draw UI and Battery
+  drawUI();      // Draws buttons
+  drawBattery(); // Draws icon and hugging percentage
   lastActionTime = millis();
 }
 
