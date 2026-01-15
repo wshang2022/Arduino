@@ -1,4 +1,5 @@
 
+#include <Arduino.h>
 #include <BLEDevice.h>
 #include <BLEUtils.h>
 #include <BLEScan.h>
@@ -8,6 +9,7 @@
 #include "FS.h"
 #include "SD.h"
 #include "SPI.h"
+#include <driver/ledc.h>
 
 // Pins for CYD
 #define XPT2046_CS 33
@@ -312,12 +314,18 @@ void policeStrobe() {
 }
 
 void setup() {
+  setCpuFrequencyMhz(80);
   Serial.begin(115200);
   pinMode(21, OUTPUT);
   digitalWrite(21, HIGH);  // Backlight
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_BLUE, OUTPUT);
+  // Backlight pin for most CYD boards is 21
+  // Format: ledcAttach(pin, frequency, resolution);
+  ledcAttach(21, 5000, 8);
+  // To set brightness: 0 = Off, 255 = Full
+  ledcWrite(21, 150);
 
   // Turn them all off at start (Set HIGH for Common Anode)
   digitalWrite(LED_RED, HIGH);
