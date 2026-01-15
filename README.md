@@ -52,6 +52,36 @@ The 24/7 Device: If you log the same MAC address at 2:00 AM and 2:00 PM at the s
 
 The "Manufacturer" Lead: Real skimmers often use cheap modules from Guangzhou HC Information Technology. If your log shows a MAC address starting with 00:14:03, that is the specific OUI for HC-05 modules.
 
+🛠 Hardware Configuration (Portrait Mode)
+This project is optimized for the ESP32-2432S028R (Cheap Yellow Display). Due to the hardware mounting of the resistive touch layer, the following mapping is required for Portrait orientation:
+
+Orientation: tft.setRotation(0) & touch.setRotation(0)
+
+Coordinate Mapping:
+
+X-Axis: Swapped to p.x and inverted: 240 - map(p.x, 200, 3700, 0, 240)
+
+Y-Axis: Swapped to p.y: map(p.y, 240, 3800, 0, 320)
+
+Touch Precision: Minimum pressure threshold p.z > 500 to prevent "Ghost Touches" common on these resistive panels.
+
+🛡️ Log Bomb Protection (Linux-Style Rotation)
+To prevent the SD card filesystem from filling up or slowing down the UI, the device implements an automatic Log Rotation strategy:
+
+Silent Background Truncation: Inside logToSD(), if the file exceeds 10KB, the oldest 50 entries are automatically purged.
+
+UI-Driven Truncation: When viewing logs, if the count exceeds 100 lines, the file is truncated to the most recent 20 entries to ensure fast rendering.
+
+Persistence: Uses a temp.csv atomic write pattern to prevent log corruption during power loss.
+
+🔋 UI Layout
+Battery Icon: Positioned at (200, 5) with dynamic color coding (Green > 50%, Yellow > 20%, Red < 20%).
+
+Hugging Logic: Percentage text is right-aligned to "hug" the battery icon for a clean status bar look.
+
+Button Grid: Three-column layout at the bottom (y > 260) for Scan, Logs, and Mute/Alarm toggle.
+
 References:
 1. https://randomnerdtutorials.com/cheap-yellow-display-esp32-2432s028r/
 f
+

@@ -223,14 +223,40 @@ void drawBattery() {
   tft.printf("%3d%%", percent);  // %3d ensures alignment for 1, 2, or 3 digits
 }
 void logToSD(String type, String name, String mac, int rssi) {
+  // 1. Check file size before opening for append
+  if (SD.exists("/log.csv")) {
+    File checkFile = SD.open("/log.csv", FILE_READ);
+    size_t fileSize = checkFile.size();
+    checkFile.close();
+
+    // If file is > 10KB (roughly 150-200 logs), trim it silently
+    if (fileSize > 10000) {
+      Serial.println("Auto-rotating log file (Too large)...");
+      
+      File file = SD.open("/log.csv", FILE_READ);
+      File tempFile = SD.open("/temp.csv", FILE_WRITE);
+      
+      // Skip the first 50 lines (oldest data)
+      for (int i = 0; i < 50; i++) { file.readStringUntil('\n'); }
+      
+      // Copy the rest to the temp file
+      while (file.available()) {
+        tempFile.println(file.readStringUntil('\n'));
+      }
+      
+      file.close();
+      tempFile.close();
+      SD.remove("/log.csv");
+      SD.rename("/temp.csv", "/log.csv");
+    }
+  }
+
+  // 2. Perform the actual log append
   File file = SD.open("/log.csv", FILE_APPEND);
   if (file) {
-    // We use millis() as a simple timestamp, or you could add NTP time later
     file.printf("%lu,%s,%s,%s,%d\n", millis(), type.c_str(), name.c_str(), mac.c_str(), rssi);
     file.close();
     Serial.println("Logged to SD");
-  } else {
-    Serial.println("Fail to open log.csv");
   }
 }
 
@@ -244,17 +270,17 @@ void showLogs() {
     tft.println("No logs found.");
   } else {
     File file = SD.open("/log.csv");
-    
+
     // 1. Count total lines in the file
     int totalLines = 0;
     while (file.available()) {
       file.readStringUntil('\n');
       totalLines++;
     }
-    
+
     // 2. Go back to the start
     file.seek(0);
-    
+
     // 3. Skip the old lines (Keep the last 15)
     int startLine = (totalLines > 15) ? (totalLines - 15) : 0;
     for (int i = 0; i < startLine; i++) {
@@ -279,7 +305,6 @@ void showLogs() {
   while (touch.touched()) { delay(10); } // Wait for release
   tft.fillScreen(TFT_BLACK);
 }
-
 void setup() {
   setCpuFrequencyMhz(80);
   Serial.begin(115200);
