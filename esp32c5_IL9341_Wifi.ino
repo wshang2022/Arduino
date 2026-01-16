@@ -1,77 +1,159 @@
 /*
-Board: ESP32-2432S028R CYD
-Libraries: TFT_eSPI and XPT2046_Touchscreen
-Rotation 1: Landscape (USB-C on the right)
-Rotation 2: Portrait (USB-C at the top)
-Rotation 3: Landscape (USB-C on the left)
-Rotation 0: Portrait (USB-C at the bottom)
-libraries/TFT_eSPI/User_Setup.h
-#define ILI9341_2_DRIVER     // Alternative ILI9341 driver, see https://github.com/Bodmer/TFT_eSPI/issues/1172
-#define TFT_MISO 12
-#define TFT_MOSI 13
-#define TFT_SCLK 14
-#define TFT_CS   15
-#define TFT_DC   2
-#define TFT_RST  -1
-#define TFT_WIDTH  240
-#define TFT_HEIGHT 320
-#define SPI_FREQUENCY 27000000
+ESP32-C5 pinout is correct on https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32c5/esp32-c5-devkitc-1/user_guide.html
+ILI9341 Pin out is correct VCC GND CS RESET DC MOSI SCK LED
+The board is ESP32C5 Dev Module
+esp32 cannot be 2.0.17 which is meant for Stock price code
+
+ILI9341	ESP32-C5 (J1 is the top side with 3.3v and J3 is the GND side with USB facing down)
+VCC		3V3
+GND		GND
+7 SCK		GPIO2 (J1 down 3 )
+6 MOSI	GPIO3  (J1 down 4)
+  MISO	GPIO26 (optional)
+3 CS		GPIO5 (J3 down 9)
+5 DC		GPIO7 (J1 down 8)
+4 RST		GPIO4 (J3 down 8)
+8 LED		3V3 (or GPIO via resistor)
 */
-
+#include <WiFi.h>
 #include <SPI.h>
-#include <TFT_eSPI.h>             // Graphics library
-#include <XPT2046_Touchscreen.h>  // Touch library
+#include <Adafruit_GFX.h>
+#include <Adafruit_ILI9341.h>
 
-// 1. Define Touch Pins (Separate from Display)
-#define XPT2046_CS 33
-#define XPT2046_CLK 25
-#define XPT2046_MISO 39
-#define XPT2046_MOSI 32
+/* ===== TFT PINS ===== */
+#define TFT_CS 5
+#define TFT_DC 7
+#define TFT_RST 4
 
-// 2. Objects for both systems
-TFT_eSPI tft = TFT_eSPI();
-SPIClass touchSPI = SPIClass(VSPI);
-XPT2046_Touchscreen touch(XPT2046_CS);
+SPIClass spi(FSPI);
+Adafruit_ILI9341 tft(TFT_CS, TFT_DC, TFT_RST);
 
-void setup() {
-  Serial.begin(115200);
-  pinMode(21, OUTPUT);
-  // Set up PWM for the backlight
-  ledcAttach(21, 5000, 8);  // Pin 21, 5kHz frequency, 8-bit resolution
-  ledcWrite(21, 150);       // Set brightness (0-255)
-  //digitalWrite(21, HIGH); // Full brgithness
+/* ===== SETTINGS ===== */
+#define MAX_NETWORKS 20
+#define SCAN_INTERVAL 20000
 
-  // Initialize Display
-  tft.init();
-  tft.invertDisplay(true); // Changes white back to black, etc.
-  tft.setRotation(3);
-  tft.fillScreen(TFT_BLACK);
-  tft.drawCentreString("CYD Touch Test", 160, 10, 2);
+struct WifiNet {
+  String ssid;
+  int rssi;
+  int channel;
+};
 
-  // Initialize Touch SPI (This avoids the conflict)
-  touchSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
-  touch.begin(touchSPI);
-  touch.setRotation(3);  // Match screen rotation
+WifiNet nets[MAX_NETWORKS];
+unsigned long lastScan = 0;
 
-  Serial.println("Setup Complete. Draw on the screen!");
+/* ===== UI ===== */
+
+void _drawHeader() {
+  tft.fillScreen(ILI9341_BLACK);
+  tft.setTextSize(2);
+  tft.setTextColor(ILI9341_CYAN);
+  tft.setCursor(10, 5);
+  tft.println("ESP32-C5 WiFi Scan");
+  tft.drawFastHLine(0, 30, 320, ILI9341_DARKGREY);
+}
+void drawHeader() {
+  tft.fillRect(0, 0, 320, 30, ILI9341_BLACK);
+  tft.setTextSize(2);
+  tft.setTextColor(ILI9341_CYAN);
+  tft.setCursor(10, 5);
+  tft.println("ESP32-C5 WiFi Scan");
+  tft.drawFastHLine(0, 30, 320, ILI9341_DARKGREY);
 }
 
+uint16_t rssiColor(int rssi) {
+  if (rssi > -55) return ILI9341_GREEN;
+  if (rssi > -70) return ILI9341_YELLOW;
+  return ILI9341_RED;
+}
+
+int rssiBarWidth(int rssi) {
+  rssi = constrain(rssi, -100, -30);
+  return map(rssi, -100, -30, 10, 140);
+}
+
+/* ===== SORT ===== */
+void sortByRSSI(int count) {
+  for (int i = 0; i < count - 1; i++) {
+    for (int j = i + 1; j < count; j++) {
+      if (nets[j].rssi > nets[i].rssi) {
+        WifiNet tmp = nets[i];
+        nets[i] = nets[j];
+        nets[j] = tmp;
+      }
+    }
+  }
+}
+
+/* ===== SCAN ===== */
+void scanAndDisplay() {
+  drawHeader();
+  // Clear ONLY scan area
+  tft.fillRect(0, 31, 320, 209, ILI9341_BLACK);
+
+
+  int n = WiFi.scanNetworks(false, true);
+  if (n <= 0) {
+    tft.setCursor(10, 40);
+    tft.setTextColor(ILI9341_RED);
+    tft.setTextSize(2);
+    tft.println("No networks");
+    return;
+  }
+
+  int count = min(n, MAX_NETWORKS);
+  for (int i = 0; i < count; i++) {
+    nets[i].ssid = WiFi.SSID(i);
+    nets[i].rssi = WiFi.RSSI(i);
+    nets[i].channel = WiFi.channel(i);
+  }
+
+  sortByRSSI(count);
+
+  int y = 40;
+  tft.setTextSize(1);
+
+  for (int i = 0; i < count; i++) {
+    uint16_t color = rssiColor(nets[i].rssi);
+    int barW = rssiBarWidth(nets[i].rssi);
+
+    // RSSI bar
+    tft.fillRect(5, y, barW, 8, color);
+
+    // Text
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setCursor(155, y);
+    tft.printf("%4d dBm CH%-2d",
+               nets[i].rssi, nets[i].channel);
+
+    tft.setCursor(155, y + 9);
+    tft.println(nets[i].ssid);
+
+    y += 20;
+    if (y > 220) break;
+  }
+
+  WiFi.scanDelete();
+}
+
+/* ===== SETUP ===== */
+void setup() {
+  Serial.begin(115200);
+
+  spi.begin(2, 26, 3, TFT_CS);
+  tft.begin();
+  tft.setRotation(1);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(true);
+  delay(200);
+
+  drawHeader();
+}
+
+/* ===== LOOP ===== */
 void loop() {
-  if (touch.touched()) {
-    TS_Point p = touch.getPoint();
-
-    // 3. Mapping Raw values to Pixels
-    // Based on your test values (~1600/2000), these ranges are safe
-    // USBC on the left rotation=1
-    // int16_t x = map(p.x, 200, 3700, 320, 0);
-    // int16_t y = map(p.y, 240, 3800, 240, 0);
-
-    // USBC on the right rotation=3
-    int16_t x = map(p.x, 200, 3700, 0, 320);
-    int16_t y = map(p.y, 240, 3800, 0, 240);
-
-    // 4. Draw on screen (Confirms no conflict)
-    tft.fillCircle(x, y, 2, TFT_YELLOW);
-    Serial.printf("X:%d  Y:%d\n", x, y);
+  if (millis() - lastScan > SCAN_INTERVAL) {
+    lastScan = millis();
+    scanAndDisplay();
   }
 }
