@@ -19,7 +19,10 @@ const int SCREEN_W = 320;
 const int SCREEN_H = 240;
 const int ROTATION = 1;
 #endif
-#define UI_HEIGHT 50  // Total height of the button area
+#define UI_HEIGHT 50  // Height of the bottom button area
+#define PROGRESS_H 3  // Height of the auto-scan bar
+#define MARGIN 10     // Standard side margin for bars
+#define BAR_H 8       // Height of signal strength bars
 #define XPT2046_CS 33
 #define XPT2046_CLK 25
 #define XPT2046_MISO 39
@@ -82,22 +85,26 @@ void policeStrobe() {
 }
 
 void drawUI() {
-  int h = UI_HEIGHT;
-  //int btnY = SCREEN_H - h;  // Bottom 60 pixels
-  int btnY = SCREEN_H - UI_HEIGHT;  // Bottom 60 pixels
-  int col1 = SCREEN_W / 3;
-  int col2 = (SCREEN_W / 3) * 2;
+  int btnY = SCREEN_H - UI_HEIGHT;        // Bottom 60 pixels
+  int midY = btnY + (UI_HEIGHT / 2) - 5;  // Calculated vertical center for text
+  // int col1 = SCREEN_W / 3;
+  // int col2 = (SCREEN_W / 3) * 2;
 
   tft.drawFastHLine(0, btnY, SCREEN_W, TFT_WHITE);
-  tft.drawFastVLine(col1, btnY, UI_HEIGHT, TFT_WHITE);
-  tft.drawFastVLine(col2, btnY, UI_HEIGHT, TFT_WHITE);
-
-  tft.drawCentreString("SCAN", col1 / 2, btnY + 20, 2);
-  tft.drawCentreString("LOGS", SCREEN_W / 2, btnY + 20, 2);
+  tft.drawFastVLine(SCREEN_W / 3, btnY, UI_HEIGHT, TFT_WHITE);
+  tft.drawFastVLine((SCREEN_W / 3) * 2, btnY, UI_HEIGHT, TFT_WHITE);
+  // tft.drawFastVLine(col1, btnY, UI_HEIGHT, TFT_WHITE);
+  // tft.drawFastVLine(col2, btnY, UI_HEIGHT, TFT_WHITE);
+  tft.setTextColor(TFT_CYAN, TFT_BLACK);
+  tft.drawCentreString("SCAN", SCREEN_W/6, midY, 2);
+  tft.drawCentreString("LOGS", SCREEN_W/2, midY, 2);
+  // tft.drawCentreString("SCAN", col1 / 2, btnY + 20, 2);
+  // tft.drawCentreString("LOGS", SCREEN_W / 2, btnY + 20, 2);
 
   String alarmText = isMuted ? "MUTED" : "ALARM";
   tft.setTextColor(isMuted ? TFT_DARKGREY : TFT_RED, TFT_BLACK);
-  tft.drawCentreString(alarmText, (col2 + SCREEN_W) / 2, btnY + 20, 2);
+  tft.drawCentreString(isMuted ? "MUTED" : "ALARM", (SCREEN_W/6)*5, midY, 2);
+  // tft.drawCentreString(alarmText, (col2 + SCREEN_W) / 2, btnY + 20, 2);
 
   drawBattery();
 }
