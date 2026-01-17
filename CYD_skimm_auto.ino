@@ -19,6 +19,7 @@ const int SCREEN_W = 320;
 const int SCREEN_H = 240;
 const int ROTATION = 1;
 #endif
+#define UI_HEIGHT 50  // Total height of the button area
 #define XPT2046_CS 33
 #define XPT2046_CLK 25
 #define XPT2046_MISO 39
@@ -81,20 +82,22 @@ void policeStrobe() {
 }
 
 void drawUI() {
-  int btnY = SCREEN_H - 60;  // Bottom 60 pixels
+  int h = UI_HEIGHT;
+  //int btnY = SCREEN_H - h;  // Bottom 60 pixels
+  int btnY = SCREEN_H - UI_HEIGHT;  // Bottom 60 pixels
   int col1 = SCREEN_W / 3;
   int col2 = (SCREEN_W / 3) * 2;
 
   tft.drawFastHLine(0, btnY, SCREEN_W, TFT_WHITE);
-  tft.drawFastVLine(col1, btnY, 60, TFT_WHITE);
-  tft.drawFastVLine(col2, btnY, 60, TFT_WHITE);
+  tft.drawFastVLine(col1, btnY, UI_HEIGHT, TFT_WHITE);
+  tft.drawFastVLine(col2, btnY, UI_HEIGHT, TFT_WHITE);
 
-  tft.drawCentreString("SCAN", col1 / 2, btnY + 25, 2);
-  tft.drawCentreString("LOGS", SCREEN_W / 2, btnY + 25, 2);
+  tft.drawCentreString("SCAN", col1 / 2, btnY + 20, 2);
+  tft.drawCentreString("LOGS", SCREEN_W / 2, btnY + 20, 2);
 
   String alarmText = isMuted ? "MUTED" : "ALARM";
   tft.setTextColor(isMuted ? TFT_DARKGREY : TFT_RED, TFT_BLACK);
-  tft.drawCentreString(alarmText, (col2 + SCREEN_W) / 2, btnY + 25, 2);
+  tft.drawCentreString(alarmText, (col2 + SCREEN_W) / 2, btnY + 20, 2);
 
   drawBattery();
 }
@@ -248,36 +251,7 @@ void drawBattery() {
   tft.printf("%3d%%", percent);
 }
 
-void _drawBattery() {
-  int raw = analogRead(35);
-  float voltage = (raw / 4095.0) * 3.3 * 2.0;
-  float v = voltage + 0.12;
-  int percent = constrain(map(v * 100, 320, 420, 0, 100), 0, 100);
 
-  // bx is the left edge of the battery icon
-  int bx = 200;
-  int by = 5;
-
-  // 1. Clear a smaller area to avoid flickering
-  tft.fillRect(bx - 40, by, 75, 15, TFT_BLACK);
-
-  // 2. Draw Battery Icon
-  tft.drawRect(bx, by, 30, 12, TFT_WHITE);
-  tft.fillRect(bx + 30, by + 3, 3, 6, TFT_WHITE);
-
-  // 3. Fill based on level
-  uint16_t color = (percent < 20) ? TFT_RED : (percent < 50) ? TFT_YELLOW
-                                                             : TFT_GREEN;
-  int barWidth = map(percent, 0, 100, 0, 26);
-  tft.fillRect(bx + 2, by + 2, barWidth, 8, color);
-
-  // 4. Print percentage HUGGING the icon
-  // Adjust the 'minus' value here to move the text closer or further.
-  // -35 to -38 usually makes it sit right against the white border.
-  tft.setCursor(bx - 36, by + 2);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.printf("%3d%%", percent);  // %3d ensures alignment for 1, 2, or 3 digits
-}
 void logToSD(String type, String name, String mac, int rssi) {
   // 1. Check file size before opening for append
   if (SD.exists("/log.csv")) {
@@ -454,10 +428,21 @@ void loop() {
       }
     }
   }
-  int px = map(millis() - lastActionTime, 0, idleTimeout, 0, 240);
-  tft.fillRect(0, 257, px, 3, TFT_BLUE);
-  tft.fillRect(px, 257, 240 - px, 3, TFT_BLACK);
-  // 4. BATTERY UPDATE (Put it here!)
+  // 1. Calculate the dynamic width of the progress bar
+  int barW = map(millis() - lastActionTime, 0, idleTimeout, 0, SCREEN_W);
+
+  // 2. Calculate the Y position (Top of buttons minus height of the bar)
+  int barY = SCREEN_H - UI_HEIGHT - 3;
+
+  // 3. Draw the progress (Blue)
+  tft.fillRect(0, barY, barW, 3, TFT_BLUE);
+
+  // 4. Clear the remaining space (Black)
+  tft.fillRect(barW, barY, SCREEN_W - barW, 3, TFT_BLACK);
+  // int px = map(millis() - lastActionTime, 0, idleTimeout, 0, 240);
+  // tft.fillRect(0, 257, px, 3, TFT_BLUE);
+  // tft.fillRect(px, 257, 240 - px, 3, TFT_BLACK);
+  // 4. BATTERY UPDATE
   // This ensures the battery is always updated regardless of touch or scans
   drawBattery();
 
