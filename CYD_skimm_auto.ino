@@ -87,19 +87,14 @@ void policeStrobe() {
 void drawUI() {
   int btnY = SCREEN_H - UI_HEIGHT;        // Bottom 60 pixels
   int midY = btnY + (UI_HEIGHT / 2) - 5;  // Calculated vertical center for text
-  // int col1 = SCREEN_W / 3;
-  // int col2 = (SCREEN_W / 3) * 2;
 
   tft.drawFastHLine(0, btnY, SCREEN_W, TFT_WHITE);
   tft.drawFastVLine(SCREEN_W / 3, btnY, UI_HEIGHT, TFT_WHITE);
   tft.drawFastVLine((SCREEN_W / 3) * 2, btnY, UI_HEIGHT, TFT_WHITE);
-  // tft.drawFastVLine(col1, btnY, UI_HEIGHT, TFT_WHITE);
-  // tft.drawFastVLine(col2, btnY, UI_HEIGHT, TFT_WHITE);
+
   tft.setTextColor(TFT_CYAN, TFT_BLACK);
   tft.drawCentreString("SCAN", SCREEN_W/6, midY, 2);
   tft.drawCentreString("LOGS", SCREEN_W/2, midY, 2);
-  // tft.drawCentreString("SCAN", col1 / 2, btnY + 20, 2);
-  // tft.drawCentreString("LOGS", SCREEN_W / 2, btnY + 20, 2);
 
   String alarmText = isMuted ? "MUTED" : "ALARM";
   tft.setTextColor(isMuted ? TFT_DARKGREY : TFT_RED, TFT_BLACK);
@@ -107,23 +102,6 @@ void drawUI() {
   // tft.drawCentreString(alarmText, (col2 + SCREEN_W) / 2, btnY + 20, 2);
 
   drawBattery();
-}
-void _drawUI() {
-  tft.drawFastHLine(0, 260, 240, TFT_WHITE);
-  tft.drawFastVLine(80, 260, 60, TFT_WHITE);
-  tft.drawFastVLine(160, 260, 60, TFT_WHITE);
-  tft.setTextSize(1);
-  tft.setTextColor(TFT_CYAN, TFT_BLACK);
-  tft.drawCentreString("SCAN", 40, 285, 2);
-  tft.drawCentreString("LOGS", 120, 285, 2);
-
-  if (isMuted) {
-    tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-    tft.drawCentreString("MUTED", 200, 285, 2);
-  } else {
-    tft.setTextColor(TFT_RED, TFT_BLACK);
-    tft.drawCentreString("ALARM", 200, 285, 2);
-  }
 }
 
 void doScan() {
@@ -446,10 +424,7 @@ void loop() {
 
   // 4. Clear the remaining space (Black)
   tft.fillRect(barW, barY, SCREEN_W - barW, 3, TFT_BLACK);
-  // int px = map(millis() - lastActionTime, 0, idleTimeout, 0, 240);
-  // tft.fillRect(0, 257, px, 3, TFT_BLUE);
-  // tft.fillRect(px, 257, 240 - px, 3, TFT_BLACK);
-  // 4. BATTERY UPDATE
+  // 5. BATTERY UPDATE
   // This ensures the battery is always updated regardless of touch or scans
   drawBattery();
 
