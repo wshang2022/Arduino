@@ -34,6 +34,7 @@ struct StockData {
   String symbol;
   float currentPrice;
   float previousPrice;
+  float openPrice;  // Opening price for the day
   float priceHistory[10];
   int historyCount;
 };
@@ -133,7 +134,7 @@ void loop() {
     }
   }
   
-  delay(100);
+  delay(3000);
 }
 
 void connectWiFi() {
@@ -204,15 +205,24 @@ void updateStockData(int index) {
     DeserializationError error = deserializeJson(doc, payload);
     
     if(!error) {
-      float price = doc["c"]; // current price
+      float price = doc["c"];      // current price
+      float openPrice = doc["o"];  // opening price
       float prevClose = doc["pc"]; // previous close price
       
       if(price > 0) {
-        // Set previous price for comparison (use previous close from API)
-        if(stock.currentPrice == 0 && prevClose > 0) {
-          stock.previousPrice = prevClose;
-        } else {
+        // Set previous price for trend tracking
+        if(stock.currentPrice > 0) {
           stock.previousPrice = stock.currentPrice;
+        } else {
+          stock.previousPrice = prevClose;
+        }
+        
+        // Set opening price for percentage calculation
+        if(openPrice > 0) {
+          stock.openPrice = openPrice;
+        } else if(stock.openPrice == 0) {
+          // If no open price, use previous close
+          stock.openPrice = prevClose;
         }
         
         stock.currentPrice = price;
@@ -223,9 +233,16 @@ void updateStockData(int index) {
         Serial.print(stock.symbol);
         Serial.print(": $");
         Serial.print(stock.currentPrice, 2);
-        Serial.print(" (prev: $");
-        Serial.print(stock.previousPrice, 2);
-        Serial.println(")");
+        Serial.print(" (open: $");
+        Serial.print(stock.openPrice, 2);
+        Serial.print(", change: ");
+        if(stock.openPrice > 0) {
+          float pct = ((stock.currentPrice - stock.openPrice) / stock.openPrice) * 100.0;
+          Serial.print(pct, 2);
+          Serial.println("%)");
+        } else {
+          Serial.println("N/A)");
+        }
       }
     }
   } else {
@@ -347,17 +364,17 @@ void drawStockRow(StockData &stock, int y) {
   }
   tft.print(priceStr);
   
-  // Price change percentage - always visible, no flashing blackout
-  if(stock.previousPrice > 0 && stock.currentPrice > 0) {
-    float change = stock.currentPrice - stock.previousPrice;
-    float changePercent = (change / stock.previousPrice) * 100.0;
+  // Price change percentage - compare to opening price
+  if(stock.openPrice > 0 && stock.currentPrice > 0) {
+    float change = stock.currentPrice - stock.openPrice;
+    float changePercent = (change / stock.openPrice) * 100.0;
     
     uint16_t changeColor = TEXT_WHITE;
     
     // Clear the area first
     tft.fillRect(130, y, 70, 10, BG_COLOR);
     
-    if(changePercent > 0.001 || changePercent < -0.001) {  // Not exactly zero
+    if(fabs(changePercent) > 0.001) {  // Not exactly zero
       if(changePercent > 0) {
         changeColor = UP_COLOR;
         tft.setTextColor(changeColor, BG_COLOR);
@@ -643,6 +660,7 @@ void parseStocks(String stockList) {
           stocks[TOTAL_STOCKS].symbol = symbol;
           stocks[TOTAL_STOCKS].currentPrice = 0;
           stocks[TOTAL_STOCKS].previousPrice = 0;
+          stocks[TOTAL_STOCKS].openPrice = 0;
           stocks[TOTAL_STOCKS].historyCount = 0;
           for(int j = 0; j < MAX_POINTS; j++) {
             stocks[TOTAL_STOCKS].priceHistory[j] = 0;
