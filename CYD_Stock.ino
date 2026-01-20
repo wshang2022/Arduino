@@ -114,22 +114,26 @@ void setup() {
 }
 
 void loop() {
-  // Handle flashing for price changes
-  if(millis() - lastFlash > FLASH_INTERVAL) {
-    flashState = !flashState;
-    lastFlash = millis();
-    drawDashboard();
-  }
-  
   // Update all stocks periodically
   if(millis() - lastUpdate > UPDATE_INTERVAL) {
     updateAllStocks();
     saveStockData();
-    drawDashboard();
     lastUpdate = millis();
+    // After updating all stocks, redraw the dashboard once
+    drawDashboard();
   }
   
-  delay(3000);
+  // Handle flashing for price changes - but don't redraw during updates
+  if(millis() - lastFlash > FLASH_INTERVAL) {
+    flashState = !flashState;
+    lastFlash = millis();
+    // Only redraw if we're not currently updating
+    if(millis() - lastUpdate > 5000) {  // Only flash if last update was >5 sec ago
+      drawDashboard();
+    }
+  }
+  
+  delay(100);
 }
 
 void connectWiFi() {
@@ -201,9 +205,16 @@ void updateStockData(int index) {
     
     if(!error) {
       float price = doc["c"]; // current price
+      float prevClose = doc["pc"]; // previous close price
       
       if(price > 0) {
-        stock.previousPrice = stock.currentPrice;
+        // Set previous price for comparison (use previous close from API)
+        if(stock.currentPrice == 0 && prevClose > 0) {
+          stock.previousPrice = prevClose;
+        } else {
+          stock.previousPrice = stock.currentPrice;
+        }
+        
         stock.currentPrice = price;
         
         // Add to history
@@ -211,7 +222,10 @@ void updateStockData(int index) {
         
         Serial.print(stock.symbol);
         Serial.print(": $");
-        Serial.println(stock.currentPrice, 2);
+        Serial.print(stock.currentPrice, 2);
+        Serial.print(" (prev: $");
+        Serial.print(stock.previousPrice, 2);
+        Serial.println(")");
       }
     }
   } else {
@@ -256,9 +270,9 @@ void drawDashboard() {
   tft.setCursor(220, 5);
   tft.print("Updated: ");
   int sec = (millis() / 1000) % 60;
-  int minute = (millis() / 60000) % 60;
-  if(minute < 10) tft.print("0");
-  tft.print(minute);
+  int minutes = (millis() / 60000) % 60;
+  if(minutes < 10) tft.print("0");
+  tft.print(minutes);
   tft.print(":");
   if(sec < 10) tft.print("0");
   tft.print(sec);
@@ -304,26 +318,19 @@ void drawStockRow(StockData &stock, int y) {
   tft.setCursor(5, y + 2);
   tft.print(stock.symbol);
   
-  // Determine price color with flashing
+  // Determine price color (no flashing during this draw)
   uint16_t priceColor = TEXT_WHITE;
-  bool shouldFlash = false;
   
-  if(stock.previousPrice > 0) {
+  if(stock.previousPrice > 0 && stock.currentPrice > 0) {
     if(stock.currentPrice > stock.previousPrice) {
       priceColor = UP_COLOR;
-      shouldFlash = true;
     } else if(stock.currentPrice < stock.previousPrice) {
       priceColor = DOWN_COLOR;
-      shouldFlash = true;
     }
   }
   
-  // Apply flash effect
-  if(shouldFlash && !flashState) {
-    priceColor = BG_COLOR;
-  }
-  
-  // Current price
+  // Current price - always visible, no flashing blackout
+  tft.fillRect(60, y, 65, 10, BG_COLOR);  // Clear price area
   tft.setTextColor(priceColor, BG_COLOR);
   tft.setCursor(60, y + 2);
   tft.print("$");
@@ -333,40 +340,51 @@ void drawStockRow(StockData &stock, int y) {
     dtostrf(stock.currentPrice, 0, 1, priceStr);
   } else if(stock.currentPrice >= 100) {
     dtostrf(stock.currentPrice, 0, 2, priceStr);
-  } else {
+  } else if(stock.currentPrice >= 10) {
     dtostrf(stock.currentPrice, 0, 2, priceStr);
+  } else {
+    dtostrf(stock.currentPrice, 0, 3, priceStr);
   }
   tft.print(priceStr);
   
-  // Price change percentage
+  // Price change percentage - always visible, no flashing blackout
   if(stock.previousPrice > 0 && stock.currentPrice > 0) {
     float change = stock.currentPrice - stock.previousPrice;
     float changePercent = (change / stock.previousPrice) * 100.0;
     
     uint16_t changeColor = TEXT_WHITE;
-    if(change > 0) {
-      changeColor = UP_COLOR;
-      if(!flashState) changeColor = BG_COLOR;
-      tft.setTextColor(changeColor, BG_COLOR);
-      tft.setCursor(130, y + 2);
-      tft.print("+");
-      tft.print(changePercent, 2);
-      tft.print("%");
-    } else if(change < 0) {
-      changeColor = DOWN_COLOR;
-      if(!flashState) changeColor = BG_COLOR;
-      tft.setTextColor(changeColor, BG_COLOR);
-      tft.setCursor(130, y + 2);
-      tft.print(changePercent, 2);
-      tft.print("%");
+    
+    // Clear the area first
+    tft.fillRect(130, y, 70, 10, BG_COLOR);
+    
+    if(changePercent > 0.001 || changePercent < -0.001) {  // Not exactly zero
+      if(changePercent > 0) {
+        changeColor = UP_COLOR;
+        tft.setTextColor(changeColor, BG_COLOR);
+        tft.setCursor(130, y + 2);
+        tft.print("+");
+        tft.print(changePercent, 2);
+        tft.print("%");
+      } else {
+        changeColor = DOWN_COLOR;
+        tft.setTextColor(changeColor, BG_COLOR);
+        tft.setCursor(130, y + 2);
+        tft.print(changePercent, 2);
+        tft.print("%");
+      }
     } else {
       tft.setTextColor(TEXT_WHITE, BG_COLOR);
       tft.setCursor(130, y + 2);
       tft.print("0.00%");
     }
+  } else {
+    tft.fillRect(130, y, 70, 10, BG_COLOR);
+    tft.setTextColor(GRID_COLOR, BG_COLOR);
+    tft.setCursor(130, y + 2);
+    tft.print("--");
   }
   
-  // Draw sparkline (compact, 80 pixels wide, 16 pixels high)
+  // Draw sparkline (compact, 100 pixels wide, 16 pixels high)
   drawSparkline(stock, 210, y + 4, 100, 16);
 }
 
@@ -375,43 +393,60 @@ void drawSparkline(StockData &stock, int x, int y, int w, int h) {
     return;  // Don't show anything if no data
   }
   
+  // Clear the sparkline area first
+  tft.fillRect(x, y, w, h, BG_COLOR);
+  
   // Find min and max
   float minPrice = stock.priceHistory[0];
   float maxPrice = stock.priceHistory[0];
   
   for(int i = 0; i < stock.historyCount; i++) {
-    if(stock.priceHistory[i] < minPrice) minPrice = stock.priceHistory[i];
-    if(stock.priceHistory[i] > maxPrice) maxPrice = stock.priceHistory[i];
+    if(stock.priceHistory[i] > 0) {  // Only consider valid prices
+      if(stock.priceHistory[i] < minPrice) minPrice = stock.priceHistory[i];
+      if(stock.priceHistory[i] > maxPrice) maxPrice = stock.priceHistory[i];
+    }
   }
   
   // Add minimal padding
   float range = maxPrice - minPrice;
-  if(range < 0.01) range = stock.currentPrice * 0.02;
-  minPrice -= range * 0.02;
-  maxPrice += range * 0.02;
+  if(range < 0.01) {
+    // If range is too small, use a percentage of current price
+    range = maxPrice * 0.05;
+    if(range < 0.01) range = 0.01;
+  }
+  
+  float padding = range * 0.1;
+  minPrice -= padding;
+  maxPrice += padding;
   range = maxPrice - minPrice;
   
   // Calculate spacing for sparkline
-  float xSpacing = (float)w / (stock.historyCount - 1);
+  float xSpacing = (float)(w - 2) / (stock.historyCount - 1);
   
   // Determine line color based on overall trend
   uint16_t lineColor = TEXT_WHITE;
-  if(stock.currentPrice > stock.priceHistory[0]) {
+  if(stock.priceHistory[stock.historyCount - 1] > stock.priceHistory[0]) {
     lineColor = UP_COLOR;
-  } else if(stock.currentPrice < stock.priceHistory[0]) {
+  } else if(stock.priceHistory[stock.historyCount - 1] < stock.priceHistory[0]) {
     lineColor = DOWN_COLOR;
   }
   
-  // Draw simple sparkline - just the line, no decorations
+  // Draw simple sparkline - just the line
   for(int i = 0; i < stock.historyCount - 1; i++) {
-    int x1 = x + (i * xSpacing);
-    int y1 = y + h - ((stock.priceHistory[i] - minPrice) / range * h);
-    
-    int x2 = x + ((i + 1) * xSpacing);
-    int y2 = y + h - ((stock.priceHistory[i + 1] - minPrice) / range * h);
-    
-    // Draw line
-    tft.drawLine(x1, y1, x2, y2, lineColor);
+    if(stock.priceHistory[i] > 0 && stock.priceHistory[i + 1] > 0) {
+      int x1 = x + 1 + (i * xSpacing);
+      int y1 = y + (h - 1) - ((stock.priceHistory[i] - minPrice) / range * (h - 2));
+      
+      int x2 = x + 1 + ((i + 1) * xSpacing);
+      int y2 = y + (h - 1) - ((stock.priceHistory[i + 1] - minPrice) / range * (h - 2));
+      
+      // Clamp y values to valid range
+      y1 = constrain(y1, y, y + h - 1);
+      y2 = constrain(y2, y, y + h - 1);
+      
+      // Draw line
+      tft.drawLine(x1, y1, x2, y2, lineColor);
+    }
   }
 }
 
