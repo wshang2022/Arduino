@@ -66,6 +66,12 @@ uint16_t rssiColor(int rssi) {
   return ILI9341_RED;
 }
 
+uint16_t GHZColor(int channel) {
+  if (channel > 36) return ILI9341_RED;
+  if (channel < 15) return ILI9341_GREEN;
+  return ILI9341_GREEN;
+}
+
 int rssiBarWidth(int rssi) {
   rssi = constrain(rssi, -100, -30);
   return map(rssi, -100, -30, 10, 140);
@@ -122,8 +128,13 @@ void scanAndDisplay() {
     // Text
     tft.setTextColor(ILI9341_WHITE);
     tft.setCursor(155, y);
-    tft.printf("%4d dBm CH%-2d",
-               nets[i].rssi, nets[i].channel);
+    tft.printf("%4d dBm ",
+               nets[i].rssi);
+    tft.setTextColor(GHZColor(nets[i].channel));               
+    tft.printf("CH%-2d",nets[i].channel);     
+
+    // tft.printf("%4d dBm CH%-2d",
+    //            nets[i].rssi, nets[i].channel);
 
     tft.setCursor(155, y + 9);
     tft.println(nets[i].ssid);
