@@ -6,6 +6,7 @@
 #define UV_ADC_PIN 26
 #define MEASURE_DURATION_MS 10000
 #define LOOP_DELAY_MS 500
+#define BTN_WAKE_GPIO GPIO_NUM_37  // M5 button on Plus2
 
 #define AUTO_POWEROFF_MS 60000  // 60 seconds
 unsigned long lastActivity = 0;
@@ -46,6 +47,20 @@ void screenOn() {
   // lastActivity = millis();
 }
 
+void goToSleep() {
+  Serial.println("Entering deep sleep...");
+
+  // Turn off display cleanly
+  M5.Display.sleep();
+  M5.Display.setBrightness(0);
+
+  delay(100);
+
+  // Wake on M5 button (active LOW)
+  esp_sleep_enable_ext0_wakeup(BTN_WAKE_GPIO, 0);
+
+  esp_deep_sleep_start();
+}
 // -------- SETUP --------
 void setup() {
   auto cfg = M5.config();
@@ -75,6 +90,7 @@ void setup() {
   screenOff();
 
   Serial.println("Idle. Press M5 button to measure.");
+  lastActivity = millis();
 }
 
 // -------- LOOP --------
@@ -140,11 +156,12 @@ void loop() {
   M5.Display.setTextSize(1);
   M5.Display.drawString(String(bat, 2) + "V", w - 40, h - 20);
   Serial.printf("RAW=%d  V=%.3f  UVI=%.2f\n", raw, voltage, uvi);
-// ---- Auto power off ----
+  // ---- Auto power off ----
   if (millis() - lastActivity > AUTO_POWEROFF_MS) {
     Serial.println("Powering off...");
     delay(100);
-    M5.Power.powerOff();
+    goToSleep();
+    //M5.Power.powerOff();
   }
   delay(LOOP_DELAY_MS);
 }
