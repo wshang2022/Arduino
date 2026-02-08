@@ -1,5 +1,14 @@
+/* 
+Board: M5StickCPlus2
+https://docs.m5stack.com/en/arduino/m5unified/speaker_class#config
+G25 => GUVA S
+3.3V only. DO NOT USE 5V even GUVA support 5V ESP32 ADC cannot accept 5 V analog
+
+*/
+#include <Arduino.h>
 #include <M5Unified.h>
 #include <WiFi.h>
+//#include "M5StickCPlus2.h"
 #include "esp_bt.h"
 
 // -------- CONFIG --------
@@ -11,6 +20,11 @@
 #define AUTO_POWEROFF_MS 60000  // 60 seconds
 unsigned long lastActivity = 0;
 
+// Buzzer
+#define BUZZER_PIN 2
+#define BUZZER_CH 0
+#define BUZZER_FREQ 3000  // 3 kHz
+#define BUZZER_RES 8
 
 // -------- COLORS (RGB565) --------
 #define UV_GREEN 0x07E0
@@ -61,11 +75,34 @@ void goToSleep() {
 
   esp_deep_sleep_start();
 }
+
+// void buzzerOn(int freq) {
+//   ledcWriteTone(BUZZER_CH, freq);
+// }
+
+// void buzzerOff() {
+//   ledcWriteTone(BUZZER_CH, 0);
+// }
+
+
+void handleBuzzer(float uvi) {
+  static unsigned long lastBeep = 0;
+
+  if (uvi >= 5.0) {
+    if (millis() - lastBeep > 1000) {
+      M5.Speaker.tone(1200, 80);  // 80 ms chirp
+      lastBeep = millis();
+    }
+  }
+}
+
+
 // -------- SETUP --------
 void setup() {
   auto cfg = M5.config();
   M5.begin(cfg);
-
+  // Buzzer
+  // ledcAttach(BUZZER_PIN, 3000, 8);  // pin, freq, resolution
   // Power savings (safe)
   WiFi.mode(WIFI_OFF);
   btStop();
@@ -86,9 +123,9 @@ void setup() {
   M5.Display.setTextColor(WHITE, BLACK);
   M5.Display.setTextSize(1);
   M5.Display.drawString("Press M5 button to measure", M5.Display.width() / 2, 20);
+  M5.Speaker.setVolume(255);
   delay(3000);
   screenOff();
-
   Serial.println("Idle. Press M5 button to measure.");
   lastActivity = millis();
 }
@@ -131,7 +168,8 @@ void loop() {
 
   if (uvi < uvi_min) uvi_min = uvi;
   if (uvi > uvi_max) uvi_max = uvi;
-
+  handleBuzzer(uvi);
+  delay(1000);
   uint32_t color = uviColor(uvi);
 
   // ---- Display ----
