@@ -18,51 +18,60 @@ Display SPI: ST7789
 #define WIPE_OFFSET 25
 
 
-class LGFX : public lgfx::LGFX_Device {
-  // lgfx::Panel_ST7789 _panel;
-  lgfx::Panel_ILI9341 _panel;
 
+class LGFX : public lgfx::LGFX_Device {
+  lgfx::Panel_ILI9341 _panel;
   lgfx::Bus_SPI _bus;
 
 public:
-  LGFX() {
-    // ---------- SPI BUS ----------
+  LGFX(void) {
+    // Bus configuration
     {
       auto cfg = _bus.config();
-      cfg.spi_host = HSPI_HOST;
+      cfg.spi_host = VSPI_HOST;  // or HSPI_HOST depending on your ESP32 (VSPI_HOST)
       cfg.spi_mode = 0;
       cfg.freq_write = 40000000;
       cfg.freq_read = 16000000;
-
+      cfg.spi_3wire = false;
+      cfg.use_lock = true;
+      cfg.dma_channel = 1;
       cfg.pin_sclk = 14;
       cfg.pin_mosi = 13;
-      // cfg.pin_miso = 12;
-      cfg.pin_miso = -1; /* disable MISO because there is no readback needed */
-      cfg.freq_read = 0; /* Slightly reduces SPI overhead and avoid floating pin issue */
+      cfg.pin_miso = 12;
       cfg.pin_dc = 2;
-
-      cfg.use_lock = true;
       _bus.config(cfg);
       _panel.setBus(&_bus);
     }
 
-    // ---------- PANEL ----------
+    // Panel configuration
     {
       auto cfg = _panel.config();
       cfg.pin_cs = 15;
       cfg.pin_rst = -1;
-      cfg.offset_rotation = 0;
-      // Critical settings to fix mirroring
-      cfg.invert = false;
+      cfg.pin_busy = -1;
+      
+      // Size settings
       cfg.panel_width = 240;
       cfg.panel_height = 320;
       cfg.memory_width = 240;
       cfg.memory_height = 320;
-      cfg.invert = true;
-      cfg.rgb_order = false;  // BGR order for CYD
       cfg.offset_x = 0;
       cfg.offset_y = 0;
-      // cfg.bus_shared = false;  // ← recommended
+      
+      // **KEY FIX: Set offset_rotation**
+      cfg.offset_rotation = 0;  // This applies rotation offset to fix mirroring
+      
+      // Color settings
+      cfg.invert = true;       // Keep your working invert setting
+      cfg.rgb_order = false;   // Keep your working RGB order (false = BGR)
+      
+      // Dummy read settings
+      cfg.dummy_read_pixel = 8;
+      cfg.dummy_read_bits = 1;
+      cfg.readable = true;
+      cfg.dlen_16bit = false;
+      cfg.bus_shared = true;
+      
       _panel.config(cfg);
     }
     setPanel(&_panel);
@@ -150,7 +159,7 @@ uint16_t temperatureToColor(float tempC) {
     g = 255 * (1 - t);
     b = 0;
   }
-  Serial.printf(" lgfx::color565(%d,%d,%d", r, g, b);
+  Serial.printf("lgfx::color565(%d,%d,%d)\n", r, g, b);
   return lgfx::color565(r, g, b);
 }
 
@@ -243,13 +252,11 @@ void redrawTemp() {
   tft.drawString(useFahrenheit ? "°F" : "°C", 90, tempValueY);
 }
 
-
 void mapTouchToScreen(const TS_Point &p, int16_t &x, int16_t &y) {
   x = map(p.x, 200, 3800, 0, 320);
   y = map(p.y, 200, 3800, 0, 240);
   // Serial.printf("Mapped x = %d y = %d\n", x, y);
 }
-
 
 void handleTouch() {
   if (!touchPressed()) return;
